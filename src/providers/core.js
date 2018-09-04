@@ -35,6 +35,7 @@ import Session from '../session';
 import Packages from '../packages';
 import Tray from '../tray';
 import Websocket from '../websocket';
+import IFrame from '../iframe';
 import * as translations from '../locale';
 import {format, translatable, translatableFlat} from '../utils/locale';
 import {style, script} from '../utils/dom';
@@ -141,6 +142,7 @@ export default class CoreServiceProvider extends ServiceProvider {
     this.session = new Session(core);
     this.tray = new Tray(core);
     this.pm = new Packages(core);
+    this.iframe = new IFrame(core);
     this.clipboard = new Clipboard();
   }
 
@@ -153,6 +155,7 @@ export default class CoreServiceProvider extends ServiceProvider {
       'osjs/window',
       'osjs/event-handler',
       'osjs/window-behaviour',
+      'osjs/iframe-window',
       'osjs/request',
       'osjs/dnd',
       'osjs/dom',
@@ -188,6 +191,10 @@ export default class CoreServiceProvider extends ServiceProvider {
 
     this.core.instance('osjs/request', (...args) => {
       return this.core.request(...args);
+    });
+
+    this.core.instance('osjs/iframe-window', (proc, options) => {
+      return this.iframe.createWindow(proc, options);
     });
 
     this.core.singleton('osjs/session', () => ({
@@ -256,6 +263,8 @@ export default class CoreServiceProvider extends ServiceProvider {
     this.core.on('osjs/core:started', () => {
       this.session.load();
     });
+
+    this.iframe.init();
 
     return this.pm.init();
   }

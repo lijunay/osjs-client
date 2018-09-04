@@ -352,6 +352,17 @@ export default class Application extends EventHandler {
   }
 
   /**
+   * Same as createWindow except that the render method is wrapped
+   * @param {Object} [options] Window options
+   * @see Application#createWindow
+   * @see {Window}
+   * @return {Window}
+   */
+  createIframeWindow(options = {}) {
+    return this.core.make('osjs/iframe-window', this, options);
+  }
+
+  /**
    * Removes window(s) based on given filter
    * @param {Function} filter Filter function
    */

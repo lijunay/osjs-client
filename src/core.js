@@ -165,8 +165,6 @@ export default class Core extends CoreBase {
       }, pingTime);
     });
 
-    this._createListeners();
-
     return super.start()
       .then(result => {
         console.groupEnd();
@@ -237,26 +235,6 @@ export default class Core extends CoreBase {
     };
 
     return true;
-  }
-
-  /**
-   * Creates event listeners*
-   */
-  _createListeners() {
-    window.addEventListener('message', ev => {
-      const message = ev.data || {};
-      if (message) {
-        // FIXME: This might actually collide with something... need to check more.
-        if (message.pid >= 0) {
-          const proc = Application.getApplications().find(p => p.pid === message.pid);
-          if (proc) {
-            console.debug('Routing message', message);
-            proc.emit('message', ...message.args);
-            return;
-          }
-        }
-      }
-    });
   }
 
   /**
