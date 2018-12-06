@@ -339,7 +339,8 @@ export default class Filesystem extends EventEmitter {
         icon: icon(m.icon),
         name: m.name,
         label: m.label,
-        root: m.root
+        root: m.root,
+        adapter: m.adapter
       }));
   }
 

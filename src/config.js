@@ -183,6 +183,13 @@ export const defaultConfiguration = {
     template: null // A string. See 'window.js' for example
   },
 
+  packages: {
+    installation: true,
+    local: {
+      root: 'home:/.packages'
+    }
+  },
+
   vfs: {
     defaultPath: 'osjs:/',
     defaultAdapter: 'system',

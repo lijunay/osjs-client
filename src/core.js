@@ -197,6 +197,11 @@ export default class Core extends CoreBase {
         if (result) {
           return connect()
             .then(() => {
+              const pm = this.make('osjs/packages');
+
+              return pm.loadPackages();
+            })
+            .then(() => {
               this.emit('osjs/core:started');
               done();
             })

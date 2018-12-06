@@ -36,6 +36,22 @@ const createUrl = (basePath, folder, metadata, filename) =>
     ? filename
     : `${basePath}${folder}/${metadata.name}/${filename}`;
 
+const mapPreloads = (core, metadata, preloads) => {
+  const {url} = core.make('osjs/vfs');
+
+  if (metadata._vfsRoot) {
+    // FIXME: We might wanna do this on actual metadata creation instead
+    const promises = preloads.map(iter => {
+      return url(`${metadata._vfsRoot}/${iter}`);
+    });
+
+    return Promise.all(promises)
+      .then(results => [].concat(...results));
+  }
+
+  return Promise.resolve(preloads);
+};
+
 /**
  * A registered package reference
  * @property {Object} metadata Package metadata
@@ -58,13 +74,6 @@ const createUrl = (basePath, folder, metadata, filename) =>
  * @property {Map<String, String>} description A map of locales and titles
  * @typedef PackageMetadata
  */
-
-/*
- * Fetch package manifest
- */
-const fetchManifest = core =>
-  fetch(core.url('/metadata.json'))
-    .then(response => response.json());
 
 /**
  * Package Manager
@@ -109,6 +118,9 @@ export default class Packages {
      * @type {String[]}
      */
     this.running = [];
+
+    this._systemMetadata = [];
+    this._userMetadata = [];
   }
 
   /**
@@ -117,6 +129,8 @@ export default class Packages {
   destroy() {
     this.packages = [];
     this.metadata = [];
+    this._systemMetadata = [];
+    this._userMetadata = [];
   }
 
   /**
@@ -131,10 +145,75 @@ export default class Packages {
         .forEach(pkg => this.launch(pkg.name));
     });
 
-    return fetchManifest(this.core)
-      .then(metadata => {
-        this.metadata = metadata.map(iter => Object.assign({type: 'application'}, iter));
-      });
+    return Promise.resolve(true);
+  }
+
+  /**
+   * Loads user and system packages
+   * @return {Promise<undefined, Error>}
+   */
+  loadPackages() {
+    const err = e => console.warn(e);
+
+    return Promise.all([
+      this.loadSystemPackages().catch(err),
+      this.loadUserPackages().catch(err)
+    ]);
+  }
+
+  /**
+   * Loads system installed packages
+   * @return {Promise<undefined, Error>}
+   */
+  loadSystemPackages() {
+    const fetchSystemManifest = () =>
+      fetch(this.core.url('/metadata.json'))
+        .then(response => response.json());
+
+    return fetchSystemManifest()
+      .then(json => this._setPackages(json, 'system'));
+  }
+
+  /**
+   * Loads user installed packages
+   * @return {Promise<undefined, Error>}
+   */
+  loadUserPackages() {
+    const {readfile} = this.core.make('osjs/vfs');
+    const {root} = this.core.config('packages.local');
+    const localManifest = `${root}/metadata.json`;
+
+    const parseLocal = str => typeof str === 'string' && str
+      ? JSON.parse(str)
+      : [];
+
+    const fetchLocalManifest = () =>
+      readfile({path: localManifest})
+        .then(parseLocal);
+
+    const compability = json => json.map(iter => Object.assign({
+      _vfsRoot: `${root}/${iter.name}`
+    }, iter));
+
+    return fetchLocalManifest()
+      .then(compability)
+      .then(json => this._setPackages(json, 'user'));
+  }
+
+  /**
+   * Internal method for populating the installed packages metadata list
+   * @param {Object[]} list List of metadatas
+   * @param {string} scope Package scope
+   */
+  _setPackages(list, scope) {
+    this[`_${scope}Metadata`] = list;
+
+    const map = iter => Object.assign({type: 'application'}, iter);
+
+    this.metadata = [
+      ...this._systemMetadata,
+      ...this._userMetadata
+    ].map(map);
   }
 
   /**
@@ -202,7 +281,7 @@ export default class Packages {
     }
 
     if (['theme', 'icons', 'sounds'].indexOf(metadata.type) !== -1) {
-      return this._launchTheme(name, metadata.type);
+      return this._launchTheme(name, metadata.type, options);
     }
 
     if (metadata.singleton) {
@@ -246,10 +325,12 @@ export default class Packages {
    *
    * @param {String} name Package name
    * @param {String} type Package type
+   * @param {Object} [options] Launch options
+   * @param {Boolean} [options.forcePreload=false] Force preload reloading
    * @throws {Error}
    * @return {Promise<Object, Error>}
    */
-  _launchTheme(name, type) {
+  _launchTheme(name, type, options = {}) {
     const _ = this.core.make('osjs/locale').translate;
     const folder = type === 'icons' ? 'icons' : 'themes';
     const basePath = this.core.config('public');
@@ -265,13 +346,16 @@ export default class Packages {
     const preloads = (metadata.files || [])
       .map(f => this.core.url(createUrl(basePath, folder, metadata, f)));
 
-    return this.preload(preloads)
-      .then(result => {
-        return Object.assign(
-          {elements: {}},
-          result,
-          this.packages.find(pkg => pkg.metadata.name === name) || {}
-        );
+    return mapPreloads(this.core, metadata, preloads)
+      .then(preloads => {
+        return this.preload(preloads, options.forcePreload === true)
+          .then(result => {
+            return Object.assign(
+              {elements: {}},
+              result,
+              this.packages.find(pkg => pkg.metadata.name === name) || {}
+            );
+          });
       });
   }
 
@@ -340,18 +424,21 @@ export default class Packages {
       return app;
     };
 
-    return this.preload(preloads, options.forcePreload === true)
-      .then(({errors}) => {
-        if (errors.length) {
-          fail(_('ERR_PACKAGE_LOAD', name, errors.join(', ')));
-        }
+    return mapPreloads(this.core, metadata, preloads)
+      .then(preloads => {
+        return this.preload(preloads, options.forcePreload === true)
+          .then(({errors}) => {
+            if (errors.length) {
+              fail(_('ERR_PACKAGE_LOAD', name, errors.join(', ')));
+            }
 
-        const found = this.packages.find(pkg => pkg.metadata.name === name);
-        if (!found) {
-          fail(_('ERR_PACKAGE_NO_RUNTIME', name));
-        }
+            const found = this.packages.find(pkg => pkg.metadata.name === name);
+            if (!found) {
+              fail(_('ERR_PACKAGE_NO_RUNTIME', name));
+            }
 
-        return create(found);
+            return create(found);
+          });
       });
   }
 
@@ -380,6 +467,66 @@ export default class Packages {
       metadata,
       callback
     });
+  }
+
+  /**
+   * Installs a package
+   * @param {Object} options
+   * @param {File|Blob|ArrayBuffer} [options.file]
+   * @param {boolean} [options.local=true]
+   */
+  install(options) {
+    // TODO: Progress Dialog
+    // TODO: Locales
+    // TODO: Better error handling
+
+    options = Object.assign({
+      file: null,
+      local: true
+    }, options);
+
+    const {mountpoints} = this.core.make('osjs/fs');
+
+    const checkSupported = (path) => {
+      const [name] = path.split(':');
+      const found = mountpoints()
+        .find(mount => mount.name === name);
+
+      // FIXME: Should check for 'local' instead probably
+      return found && found.adapter === 'system';
+    };
+
+    const enabled = this.core.config('packages.installation');
+    if (!enabled) {
+      return Promise.reject(new Error('Package installation not enabled.'));
+    }
+
+    if (options.local) {
+      const {root} = this.core.config('packages.local');
+      if (!checkSupported(root)) {
+        return Promise.reject(new Error('Cannot install local packages on a non-system VFS adapter'));
+      }
+    }
+
+    const reloader = options.local
+      ? () => this.loadUserPackages()
+      : () => this.loadSystemPackages();
+
+    return this.core
+      .request('/packages/install', {
+        method: 'post',
+        body: options
+      }, 'json')
+      .then(result => {
+        if (result.success) {
+          return reloader()
+            .catch(err => console.warn(err));
+        }
+
+        console.error(result.errors);
+
+        return Promise.reject(new Error('Package installaction was unsuccessful'));
+      });
   }
 
   /**

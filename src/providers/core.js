@@ -266,7 +266,11 @@ export default class CoreServiceProvider extends ServiceProvider {
       register: (...args) => this.pm.register(...args),
       launch: (...args) => this.pm.launch(...args),
       preload: (...args) => this.pm.preload(...args),
-      running: () => this.pm.running
+      running: () => this.pm.running,
+      loadSystemPackages: () => this.pm.loadSystemPackages(),
+      loadUserPackages: () => this.pm.loadUserPackages(),
+      loadPackages: () => this.pm.loadPackages(),
+      install: (options) => this.pm.install(options)
     }));
 
     this.core.instance('osjs/clipboard', () => ({
@@ -326,7 +330,7 @@ export default class CoreServiceProvider extends ServiceProvider {
       });
 
       this.core.on('osjs/packages:metadata:changed', () => {
-        this.pm.init();
+        this.pm.loadSystemPackages();
       });
 
       this.core.on('osjs/packages:package:changed', name => {
